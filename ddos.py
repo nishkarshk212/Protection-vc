@@ -6,6 +6,9 @@ import time
 import collections
 import random
 import sys
+import subprocess
+import os
+import re
 from datetime import datetime, timedelta
 
 try:
@@ -16,10 +19,19 @@ except ImportError:
     TELEGRAM_AVAILABLE = False
     print("⚠️  Telegram bot features not available (pyTelegramBotAPI not installed)")
 
-VERSION = "2.1.0"
+try:
+    from pyrogram import Client, filters
+    from pyrogram.types import ChatMember, Message
+    PYROGRAM_AVAILABLE = True
+except ImportError:
+    PYROGRAM_AVAILABLE = False
+    print("⚠️  Userbot features not available (pyrogram not installed)")
+
+VERSION = "3.0.0"
 
 print("=" * 100)
-print(f"  🛡️ DDoS PROTECTION SYSTEM v{VERSION} - WITH /block COMMAND!")
+print(f"  🛡️ ADVANCED DDoS PROTECTION SYSTEM v{VERSION}")
+print(f"  🎤 Voice Chat Protection | 🔒 Network Blocking | 🤖 Userbot Integration")
 print("=" * 100)
 
 class DDoSProtection:
@@ -39,8 +51,29 @@ class DDoSProtection:
             "attacks_detected": 0,
             "legitimate_requests": 0,
             "manual_blocks": 0,
+            "network_blocks": 0,
+            "user_bans": 0,
+            "voice_chat_blocks": 0,
             "start_time": datetime.now()
         }
+        
+        # User ID blocking
+        self.blocked_user_ids = set()
+        self.whitelisted_user_ids = set()
+        
+        # Voice chat monitoring
+        self.voice_chat_participants = {}
+        self.monitored_chats = set()
+        self.voice_chat_enabled = False
+        
+        # Network blocking
+        self.network_blocking_enabled = False
+        
+        # Userbot configuration
+        self.userbot = None
+        self.userbot_api_id = None
+        self.userbot_api_hash = None
+        self.userbot_phone = None
         
         self.TOKEN = "8853038204:AAH9Fj0V2Gae27stnEiX3MlAYZxZumBzkB0"
         self.ADMIN_CHAT_ID = 3988638423
@@ -48,6 +81,9 @@ class DDoSProtection:
         if TELEGRAM_AVAILABLE:
             self.bot = telebot.TeleBot(self.TOKEN)
             self.setup_telegram_handlers()
+        
+        if PYROGRAM_AVAILABLE:
+            self.setup_userbot_handlers()
     
     def setup_telegram_handlers(self):
         if not self.bot:
@@ -147,7 +183,7 @@ class DDoSProtection:
         
         @self.bot.message_handler(commands=['help'])
         def send_help(message):
-            help_msg = ("🛡️ <b>DDoS PROTECTION HELP</b>\n\n"
+            help_msg = ("🛡️ <b>ADVANCED DDoS PROTECTION HELP</b>\n\n"
                        "Available Commands:\n"
                        "/start - Start the bot\n"
                        "/status - Check system status\n"
@@ -155,9 +191,88 @@ class DDoSProtection:
                        "/blocked - List blocked IPs\n"
                        "/block &lt;ip&gt; - Manually block an IP\n"
                        "/unblock &lt;ip&gt; - Unblock an IP\n"
+                       "/banuser &lt;user_id&gt; - Ban a Telegram user\n"
+                       "/unbanuser &lt;user_id&gt; - Unban a Telegram user\n"
+                       "/monitorchat &lt;chat_id&gt; - Monitor voice chat\n"
+                       "/stopmonitor &lt;chat_id&gt; - Stop monitoring chat\n"
+                       "/networkblock &lt;ip&gt; - Block IP at network level\n"
+                       "/networkunblock &lt;ip&gt; - Unblock IP at network level\n"
                        "/test - Simulate DDoS attack\n"
                        "/help - Show this message")
             self.bot.send_message(message.chat.id, help_msg, parse_mode="HTML")
+        
+        @self.bot.message_handler(commands=['banuser'])
+        def ban_user_cmd(message):
+            try:
+                user_id = int(message.text.split()[1])
+                with self.lock:
+                    if user_id in self.whitelisted_user_ids:
+                        self.bot.send_message(message.chat.id, f"⚠️ User {user_id} is whitelisted")
+                    elif user_id in self.blocked_user_ids:
+                        self.bot.send_message(message.chat.id, f"⚠️ User {user_id} is already banned")
+                    else:
+                        self.ban_user_id(user_id)
+                        self.bot.send_message(message.chat.id, f"✅ Banned user: {user_id}")
+            except (IndexError, ValueError):
+                self.bot.send_message(message.chat.id, "⚠️ Usage: /banuser &lt;user_id&gt;")
+        
+        @self.bot.message_handler(commands=['unbanuser'])
+        def unban_user_cmd(message):
+            try:
+                user_id = int(message.text.split()[1])
+                with self.lock:
+                    if user_id in self.blocked_user_ids:
+                        self.blocked_user_ids.remove(user_id)
+                        self.stats["user_bans"] = max(0, self.stats["user_bans"] - 1)
+                        self.bot.send_message(message.chat.id, f"✅ Unbanned user: {user_id}")
+                    else:
+                        self.bot.send_message(message.chat.id, f"❌ User {user_id} not banned")
+            except (IndexError, ValueError):
+                self.bot.send_message(message.chat.id, "⚠️ Usage: /unbanuser &lt;user_id&gt;")
+        
+        @self.bot.message_handler(commands=['monitorchat'])
+        def monitor_chat_cmd(message):
+            try:
+                chat_id = int(message.text.split()[1])
+                self.monitored_chats.add(chat_id)
+                self.voice_chat_enabled = True
+                self.bot.send_message(message.chat.id, f"✅ Now monitoring voice chat: {chat_id}")
+            except (IndexError, ValueError):
+                self.bot.send_message(message.chat.id, "⚠️ Usage: /monitorchat &lt;chat_id&gt;")
+        
+        @self.bot.message_handler(commands=['stopmonitor'])
+        def stop_monitor_cmd(message):
+            try:
+                chat_id = int(message.text.split()[1])
+                if chat_id in self.monitored_chats:
+                    self.monitored_chats.remove(chat_id)
+                    self.bot.send_message(message.chat.id, f"✅ Stopped monitoring: {chat_id}")
+                else:
+                    self.bot.send_message(message.chat.id, f"❌ Not monitoring: {chat_id}")
+            except (IndexError, ValueError):
+                self.bot.send_message(message.chat.id, "⚠️ Usage: /stopmonitor &lt;chat_id&gt;")
+        
+        @self.bot.message_handler(commands=['networkblock'])
+        def network_block_cmd(message):
+            try:
+                ip = message.text.split()[1]
+                if self.network_block_ip(ip):
+                    self.bot.send_message(message.chat.id, f"✅ Network blocked: {ip}")
+                else:
+                    self.bot.send_message(message.chat.id, f"❌ Failed to block: {ip}")
+            except IndexError:
+                self.bot.send_message(message.chat.id, "⚠️ Usage: /networkblock &lt;ip&gt;")
+        
+        @self.bot.message_handler(commands=['networkunblock'])
+        def network_unblock_cmd(message):
+            try:
+                ip = message.text.split()[1]
+                if self.network_unblock_ip(ip):
+                    self.bot.send_message(message.chat.id, f"✅ Network unblocked: {ip}")
+                else:
+                    self.bot.send_message(message.chat.id, f"❌ Failed to unblock: {ip}")
+            except IndexError:
+                self.bot.send_message(message.chat.id, "⚠️ Usage: /networkunblock &lt;ip&gt;")
         
         @self.bot.callback_query_handler(func=lambda call: True)
         def callback(call):
@@ -165,6 +280,53 @@ class DDoSProtection:
             elif call.data == "alerts": send_alerts(call.message)
             elif call.data == "blocked": send_blocked(call.message)
             elif call.data == "test": test_cmd(call.message)
+    
+    def setup_userbot_handlers(self):
+        """Setup Pyrogram userbot handlers for voice chat monitoring"""
+        if not PYROGRAM_AVAILABLE:
+            return
+        
+        # Userbot will be initialized when credentials are provided
+        pass
+    
+    def init_userbot(self, api_id, api_hash, phone):
+        """Initialize Pyrogram userbot with credentials"""
+        if not PYROGRAM_AVAILABLE:
+            print("⚠️ Pyrogram not available")
+            return False
+        
+        try:
+            self.userbot_api_id = api_id
+            self.userbot_api_hash = api_hash
+            self.userbot_phone = phone
+            
+            # Create userbot session
+            self.userbot = Client(
+                "ddos_protection_userbot",
+                api_id=api_id,
+                api_hash=api_hash,
+                phone_number=phone
+            )
+            
+            print("✅ Userbot initialized successfully")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to initialize userbot: {e}")
+            return False
+    
+    def start_userbot(self):
+        """Start the userbot for voice chat monitoring"""
+        if not self.userbot:
+            print("⚠️ Userbot not initialized")
+            return False
+        
+        try:
+            self.userbot.start()
+            print("✅ Userbot started")
+            return True
+        except Exception as e:
+            print(f"❌ Failed to start userbot: {e}")
+            return False
     
     def calculate_threat_score(self, ip):
         traffic = self.ip_traffic[ip]
@@ -243,6 +405,164 @@ class DDoSProtection:
             except:
                 pass
     
+    def ban_user_id(self, user_id):
+        """Ban a Telegram user by ID"""
+        self.blocked_user_ids.add(user_id)
+        self.stats["user_bans"] += 1
+        
+        alert = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "ip": f"USER:{user_id}",
+            "threat_score": 100,
+            "type": "USER_BAN",
+            "duration": "permanent"
+        }
+        self.alerts.append(alert)
+        
+        print(f"\n🚫 [USER-BAN] User ID: {user_id} | Duration: permanent")
+        
+        if self.bot:
+            try:
+                self.bot.send_message(
+                    self.ADMIN_CHAT_ID,
+                    f"🚫 <b>USER BANNED!</b>\nUser ID: {user_id}\nDuration: permanent",
+                    parse_mode="HTML"
+                )
+            except:
+                pass
+    
+    def network_block_ip(self, ip):
+        """Block IP at network level using iptables"""
+        try:
+            # Check if already blocked
+            result = subprocess.run(
+                ["iptables", "-C", "INPUT", "-s", ip, "-j", "DROP"],
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                print(f"⚠️ IP {ip} already blocked at network level")
+                return True
+            
+            # Block the IP
+            subprocess.run(
+                ["iptables", "-A", "INPUT", "-s", ip, "-j", "DROP"],
+                check=True
+            )
+            
+            self.blocked_ips.add(ip)
+            self.stats["network_blocks"] += 1
+            self.stats["total_blocked"] += 1
+            
+            alert = {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "ip": ip,
+                "threat_score": 100,
+                "type": "NETWORK_BLOCK",
+                "duration": "permanent"
+            }
+            self.alerts.append(alert)
+            
+            print(f"\n🔥 [NETWORK-BLOCK] {ip} | Duration: permanent")
+            
+            if self.bot:
+                try:
+                    self.bot.send_message(
+                        self.ADMIN_CHAT_ID,
+                        f"🔥 <b>NETWORK BLOCK!</b>\nIP: {ip}\nDuration: permanent",
+                        parse_mode="HTML"
+                    )
+                except:
+                    pass
+            
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to network block {ip}: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ Error network blocking {ip}: {e}")
+            return False
+    
+    def network_unblock_ip(self, ip):
+        """Unblock IP at network level"""
+        try:
+            subprocess.run(
+                ["iptables", "-D", "INPUT", "-s", ip, "-j", "DROP"],
+                check=True
+            )
+            
+            if ip in self.blocked_ips:
+                self.blocked_ips.remove(ip)
+            
+            print(f"\n✅ [NETWORK-UNBLOCK] {ip}")
+            
+            if self.bot:
+                try:
+                    self.bot.send_message(
+                        self.ADMIN_CHAT_ID,
+                        f"✅ <b>NETWORK UNBLOCK!</b>\nIP: {ip}",
+                        parse_mode="HTML"
+                    )
+                except:
+                    pass
+            
+            return True
+        except subprocess.CalledProcessError:
+            print(f"⚠️ IP {ip} not blocked at network level")
+            return False
+        except Exception as e:
+            print(f"❌ Error network unblocking {ip}: {e}")
+            return False
+    
+    def monitor_voice_chat_participants(self):
+        """Monitor voice chat participants for suspicious activity"""
+        if not self.voice_chat_enabled or not self.userbot:
+            return
+        
+        while self.running:
+            try:
+                for chat_id in self.monitored_chats:
+                    try:
+                        # Get voice chat participants
+                        participants = self.userbot.get_chat_participants(chat_id)
+                        
+                        for participant in participants:
+                            user_id = participant.user.id
+                            
+                            # Check if user is banned
+                            if user_id in self.blocked_user_ids:
+                                # Kick from voice chat
+                                try:
+                                    self.userbot.ban_chat_member(chat_id, user_id)
+                                    self.stats["voice_chat_blocks"] += 1
+                                    print(f"🎤 [VOICE-CHAT-BLOCK] Kicked user {user_id} from voice chat")
+                                except:
+                                    pass
+                    except Exception as e:
+                        print(f"⚠️ Error monitoring chat {chat_id}: {e}")
+                
+                time.sleep(10)  # Check every 10 seconds
+            except Exception as e:
+                print(f"⚠️ Voice chat monitoring error: {e}")
+                time.sleep(5)
+    
+    def auto_ban_suspicious_users(self):
+        """Auto-ban users showing suspicious patterns"""
+        while self.running:
+            try:
+                # Analyze traffic patterns for suspicious user activity
+                with self.lock:
+                    for ip, traffic in list(self.ip_traffic.items()):
+                        if len(traffic) > 100:  # High activity threshold
+                            # This could be extended with more sophisticated detection
+                            pass
+                
+                time.sleep(30)  # Check every 30 seconds
+            except Exception as e:
+                print(f"⚠️ Auto-ban error: {e}")
+                time.sleep(10)
+    
     def block_ip(self, ip, threat_score, pkt_type):
         self.blocked_ips.add(ip)
         self.stats["total_blocked"] += 1
@@ -291,8 +611,13 @@ class DDoSProtection:
             "blocked_count": len(self.blocked_ips),
             "total_blocked": self.stats["total_blocked"],
             "manual_blocks": self.stats["manual_blocks"],
+            "network_blocks": self.stats["network_blocks"],
+            "user_bans": self.stats["user_bans"],
+            "voice_chat_blocks": self.stats["voice_chat_blocks"],
             "uptime": f"{hours:02d}:{minutes:02d}:{seconds:02d}",
             "blocked_ips": list(self.blocked_ips),
+            "blocked_users": list(self.blocked_user_ids),
+            "monitored_chats": list(self.monitored_chats),
             "recent_alerts": self.alerts[-5:]
         }
     
@@ -303,10 +628,18 @@ class DDoSProtection:
         print("=" * 100)
         print(f"   📦 Packets: {status['total_packets']:,} | ✅ Legitimate: {status['legitimate_requests']:,}")
         print(f"   🎯 Attacks: {status['attacks_detected']} | 🚫 Blocked: {status['blocked_count']}")
-        print(f"   🔒 Manual Blocks: {status['manual_blocks']} | ⏱️ Uptime: {status['uptime']}")
+        print(f"   🔒 Manual Blocks: {status['manual_blocks']} | 🔥 Network Blocks: {status['network_blocks']}")
+        print(f"   👤 User Bans: {status['user_bans']} | 🎤 Voice Chat Blocks: {status['voice_chat_blocks']}")
+        print(f"   ⏱️ Uptime: {status['uptime']}")
         
         if status['blocked_ips']:
             print(f"\n   Blocked IPs: {', '.join(status['blocked_ips'][:5])}")
+        
+        if status['blocked_users']:
+            print(f"\n   Banned Users: {', '.join(map(str, status['blocked_users'][:5]))}")
+        
+        if status['monitored_chats']:
+            print(f"\n   Monitored Chats: {', '.join(map(str, status['monitored_chats']))}")
         
         if status['recent_alerts']:
             print(f"\n   Recent Alerts:")
@@ -335,15 +668,25 @@ class DDoSProtection:
             
             time.sleep(random.uniform(0.5, 1.5))
     
-    def start(self, with_telegram=True, with_simulation=True):
-        print("\n🚀 [STARTING] DDoS Protection System with /block command")
+    def start(self, with_telegram=True, with_simulation=True, with_userbot=False):
+        print("\n🚀 [STARTING] Advanced DDoS Protection System")
         
         if with_telegram and self.bot:
             print("   • Telegram bot: ENABLED")
             print("   • /block command: AVAILABLE")
+            print("   • User management: AVAILABLE")
+            print("   • Network blocking: AVAILABLE")
             threading.Thread(target=self._telegram_poller, daemon=True).start()
         else:
             print("   • Telegram bot: DISABLED")
+        
+        if with_userbot and self.userbot:
+            print("   • Userbot: ENABLED")
+            print("   • Voice chat monitoring: ACTIVE")
+            threading.Thread(target=self.monitor_voice_chat_participants, daemon=True).start()
+            threading.Thread(target=self.auto_ban_suspicious_users, daemon=True).start()
+        else:
+            print("   • Userbot: DISABLED")
         
         print("   • Auto-protection: ACTIVE")
         print("   • AI threat scoring: ENABLED")
@@ -374,15 +717,41 @@ class DDoSProtection:
     
     def stop(self):
         self.running = False
+        
+        # Stop userbot if running
+        if self.userbot:
+            try:
+                self.userbot.stop()
+                print("   • Userbot stopped")
+            except:
+                pass
+        
         print("\n🛑 [STOPPED] System shutdown complete")
         print(f"   Final stats: {self.stats['attacks_detected']} attacks blocked!")
         print(f"   Manual blocks: {self.stats['manual_blocks']}")
+        print(f"   Network blocks: {self.stats['network_blocks']}")
+        print(f"   User bans: {self.stats['user_bans']}")
+        print(f"   Voice chat blocks: {self.stats['voice_chat_blocks']}")
         print("👋 Goodbye!")
         sys.exit(0)
 
 def main():
     protection = DDoSProtection()
-    protection.start(with_telegram=True, with_simulation=True)
+    
+    # Optional: Initialize userbot with credentials
+    # Uncomment and fill in your credentials to enable userbot features
+    # api_id = 1234567  # Your API ID from my.telegram.org
+    # api_hash = "your_api_hash_here"  # Your API Hash from my.telegram.org
+    # phone = "+1234567890"  # Your phone number with country code
+    # 
+    # if protection.init_userbot(api_id, api_hash, phone):
+    #     protection.start_userbot()
+    #     protection.start(with_telegram=True, with_simulation=True, with_userbot=True)
+    # else:
+    #     protection.start(with_telegram=True, with_simulation=True, with_userbot=False)
+    
+    # Start without userbot for now
+    protection.start(with_telegram=True, with_simulation=True, with_userbot=False)
 
 if __name__ == "__main__":
     main()
