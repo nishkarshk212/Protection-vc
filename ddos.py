@@ -77,6 +77,7 @@ class DDoSProtection:
         
         self.TOKEN = "8853038204:AAH9Fj0V2Gae27stnEiX3MlAYZxZumBzkB0"
         self.ADMIN_CHAT_ID = 3988638423
+        self.OWNER_ID = 8519966775
         self.bot = None
         if TELEGRAM_AVAILABLE:
             self.bot = telebot.TeleBot(self.TOKEN)
@@ -197,6 +198,7 @@ class DDoSProtection:
                        "/stopmonitor &lt;chat_id&gt; - Stop monitoring chat\n"
                        "/networkblock &lt;ip&gt; - Block IP at network level\n"
                        "/networkunblock &lt;ip&gt; - Unblock IP at network level\n"
+                       "/attack - Execute DDOS.py (Owner only)\n"
                        "/test - Simulate DDoS attack\n"
                        "/help - Show this message")
             self.bot.send_message(message.chat.id, help_msg, parse_mode="HTML")
@@ -273,6 +275,33 @@ class DDoSProtection:
                     self.bot.send_message(message.chat.id, f"❌ Failed to unblock: {ip}")
             except IndexError:
                 self.bot.send_message(message.chat.id, "⚠️ Usage: /networkunblock &lt;ip&gt;")
+        
+        @self.bot.message_handler(commands=['attack'])
+        def attack_cmd(message):
+            # Owner-only command
+            if message.from_user.id != self.OWNER_ID:
+                self.bot.send_message(message.chat.id, "❌ Access denied. Owner only command.")
+                return
+            
+            try:
+                self.bot.send_message(message.chat.id, "🚀 Starting DDOS.py attack simulation...")
+                
+                # Execute DDOS.py
+                import subprocess
+                result = subprocess.run(
+                    ["python3", "/root/Protection-vc/DDOS.PY"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                output = result.stdout if result.stdout else result.stderr
+                self.bot.send_message(message.chat.id, f"✅ DDOS.py executed!\n\nOutput:\n{output[:1000]}")
+                
+            except subprocess.TimeoutExpired:
+                self.bot.send_message(message.chat.id, "⚠️ DDOS.py execution timed out")
+            except Exception as e:
+                self.bot.send_message(message.chat.id, f"❌ Error executing DDOS.py: {str(e)}")
         
         @self.bot.callback_query_handler(func=lambda call: True)
         def callback(call):
