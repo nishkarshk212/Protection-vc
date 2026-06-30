@@ -45,6 +45,8 @@ class DDoSProtection:
         self.connection_threshold = 150
         self.lock = threading.Lock()
         self.running = True
+        self.persistent_block_file = "/root/ddos_persistent_blocks.txt"
+        self.load_persistent_blocks()
         self.stats = {
             "total_packets": 0,
             "total_blocked": 0,
@@ -69,6 +71,9 @@ class DDoSProtection:
         # Network blocking
         self.network_blocking_enabled = False
         
+        # Production mode (disable simulator)
+        self.production_mode = True
+        
         # Userbot configuration
         self.userbot = None
         self.userbot_api_id = None
@@ -85,6 +90,30 @@ class DDoSProtection:
         
         if PYROGRAM_AVAILABLE:
             self.setup_userbot_handlers()
+    
+    def load_persistent_blocks(self):
+        """Load permanently blocked IPs from file"""
+        try:
+            if os.path.exists(self.persistent_block_file):
+                with open(self.persistent_block_file, 'r') as f:
+                    for line in f:
+                        ip = line.strip()
+                        if ip and ip not in self.whitelisted_ips:
+                            self.blocked_ips.add(ip)
+                            # Also add to iptables if not already there
+                            self.network_block_ip(ip)
+                print(f"✅ Loaded {len(self.blocked_ips)} persistent blocks")
+        except Exception as e:
+            print(f"⚠️ Error loading persistent blocks: {e}")
+    
+    def save_persistent_block(self, ip):
+        """Save a permanently blocked IP to file"""
+        try:
+            with open(self.persistent_block_file, 'a') as f:
+                f.write(f"{ip}\n")
+            print(f"✅ Saved persistent block: {ip}")
+        except Exception as e:
+            print(f"⚠️ Error saving persistent block: {e}")
     
     def setup_telegram_handlers(self):
         if not self.bot:
@@ -682,6 +711,9 @@ class DDoSProtection:
             self.stats["network_blocks"] += 1
             self.stats["total_blocked"] += 1
             
+            # Save to persistent file
+            self.save_persistent_block(ip)
+            
             alert = {
                 "time": datetime.now().strftime("%H:%M:%S"),
                 "ip": ip,
@@ -795,30 +827,35 @@ class DDoSProtection:
         self.stats["total_blocked"] += 1
         self.stats["attacks_detected"] += 1
         
-        block_duration = min(threat_score, 300)
+        # For high threat scores, use permanent network-level blocking
+        if threat_score >= 110:
+            block_duration = 0  # Permanent block
+            self.network_block_ip(ip)  # Block at iptables level
+            print(f"\n🔥 [PERMANENT NETWORK BLOCK] {ip} | Threat: {threat_score}%")
+        else:
+            block_duration = min(threat_score * 10, 3600)  # Increased duration: up to 1 hour
+            threading.Thread(target=self.unblock_ip_after, args=(ip, block_duration)).start()
         
         alert = {
             "time": datetime.now().strftime("%H:%M:%S"),
             "ip": ip,
             "threat_score": threat_score,
             "type": pkt_type,
-            "duration": block_duration
+            "duration": "permanent" if block_duration == 0 else f"{block_duration}s"
         }
         self.alerts.append(alert)
         
-        print(f"\n🚫 [AUTO-BLOCK] {ip} | Threat: {threat_score}% | Duration: {block_duration}s")
+        print(f"\n🚫 [AUTO-BLOCK] {ip} | Threat: {threat_score}% | Duration: {alert['duration']}")
         
         if self.bot:
             try:
                 self.bot.send_message(
                     self.ADMIN_CHAT_ID,
-                    f"🚫 <b>DDoS BLOCKED!</b>\nIP: {ip}\nThreat: {threat_score}%\nDuration: {block_duration}s",
+                    f"🚫 <b>DDoS BLOCKED!</b>\nIP: {ip}\nThreat: {threat_score}%\nDuration: {alert['duration']}",
                     parse_mode="HTML"
                 )
             except:
                 pass
-        
-        threading.Thread(target=self.unblock_ip_after, args=(ip, block_duration)).start()
     
     def unblock_ip_after(self, ip, delay):
         time.sleep(delay)
@@ -918,6 +955,10 @@ class DDoSProtection:
         print("   • Auto-protection: ACTIVE")
         print("   • AI threat scoring: ENABLED")
         print("   • Real-time monitoring: ACTIVE")
+        
+        if self.production_mode:
+            print("   • Production mode: ENABLED (simulator disabled)")
+            with_simulation = False
         
         threading.Thread(target=self._status_updater, daemon=True).start()
         
